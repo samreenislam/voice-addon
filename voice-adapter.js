@@ -8,10 +8,6 @@
 
 'use strict';
 
-const https = require('https');
-const spawn = require('child_process').spawn;
-const fs = require('fs');
-const path = require('path');
 const {Adapter, Device, Property, Event} = require('gateway-addon');
 
 const DsAPIHandler = require('./ds-api-handler');
@@ -39,29 +35,11 @@ class ActiveProperty extends Property {
    */
   setValue(value) {
     if (value) {
-      console.log('ActiveProperty:' + name + ' -> ' + value);
-      // spawn training
-      this.device.eventNotify(new Event(this.device,
-                                        'training',
-                                        'started'));
-    } else {
-      console.log('shutdown training');
-      // shutdown training
-      if (this.training_process) {
-        this.device.eventNotify(new Event(this.device,
-                                          'training',
-                                          'ended'));
-      }
-    }
-    return new Promise((resolve, reject) => {
-      super.setValue(value).then((updatedValue) => {
-        resolve(updatedValue);
-        this.device.notifyPropertyChanged(this);
-      }).catch((err) => {
-        reject(err);
-      });
-    });
+      console.log("on");
+  } else {
+    console.log("off");
   }
+}
 }
 
 class VoiceDevice extends Device {
@@ -90,23 +68,8 @@ class VoiceDevice extends Device {
       this.addEvent(deviceDescription.events[event].name,
                     deviceDescription.events[event].metadata);
     }
+     }
 
-    this.ds = adapter.getDsApi();
-
-    this.ds.events.on('transcript', this.dsEvent.bind(this));
-    this.ds.events.on('silence', this.dsEvent.bind(this));
-
-    console.log('VoiceDevice:' + deviceDescription.name + ': start listening');
-    console.log('Waiting 10 secs to setup things ...');
-    setTimeout(() => {
-      console.log('Starting Matrix');
-      this.ds.startMatrixMic();
-    }, 10*1000);
-  }
-
-  dsEvent(ev) {
-    console.log('VoiceDevice:dsEvent: ' + JSON.stringify(ev));
-  }
 }
 
 class VoiceAdapter extends Adapter {
@@ -116,23 +79,18 @@ class VoiceAdapter extends Adapter {
     console.log('VoiceAdapter:' + packageName);
     this.savedDevices = new Set();
     this._dsApi = this.startDsApi(addonManager);
-  }
 
-  getDsApi() {
-    return this._dsApi;
+    console.log('VoiceDevice: start listening');
+    console.log('Waiting 10 secs to setup things ...');
+    setTimeout(() => {
+      console.log('Starting Matrix');
+     this._dsApi.startMatrixMic();
+    }, 10*1000);
   }
 
   startDsApi(addonManager) {
     console.log('Launching DsAPI from DsAdapter');
     return new DsAPIHandler(addonManager);
-  }
-
-  handleDeviceSaved(deviceId, deviceFull) {
-    console.log('DsAdapter discover device: ' + deviceId);
-    this.savedDevices.add(deviceFull);
-    if (this._dsApi) {
-      this._dsApi.generateLocalLM(this.savedDevices);
-    }
   }
 
   /**
@@ -240,25 +198,6 @@ function loadVoiceAdapter(addonManager, manifest, _errorCallback) {
   console.log(`microphone ${microphone}`);
   console.log(`speaker ${speaker}`);
 
-  let capture_pcm = '';
-  let playback_pcm = '';
-
-  if (microphone === 'USB') {
-    capture_pcm = 'capture.pcm { \n type plug \n slave.pcm \'hw:1,0\' \n }';
-  }
-
-  if (speaker === 'USB') {
-    playback_pcm = 'playback.pcm { \n type plug \n slave.pcm \'hw:1,0\' \n }';
-  } else {
-    playback_pcm = 'playback.pcm { \n type plug \n slave.pcm \'hw:0,0\' \n }';
-  }
-
-  console.log('writing asound.conf');
-  const asound_tpl =
-    `pcm.!default { \n type asym \n ${playback_pcm} \n ${capture_pcm} \n } \n`;
-  fs.writeFileSync(path.join(__dirname, 'asound.conf'), asound_tpl);
-  console.log('asound.conf written');
-
   const adapter = new VoiceAdapter(addonManager, manifest.name);
   const device = new VoiceDevice(adapter, 'voice-controller', {
     name: 'voice-controller',
@@ -274,52 +213,38 @@ function loadVoiceAdapter(addonManager, manifest, _errorCallback) {
         value: false,
       },
     },
-    events: [
-      {
-        name: 'wakeword',
-        metadata: {
-          description: 'A wakeword was deteced',
-          type: 'string',
-        },
-      },
-      {
-        name: 'speechinput',
-        metadata: {
-          description: 'A voice command was detected',
-          type: 'string',
-        },
-      },
-      {
-        name: 'command',
-        metadata: {
-          description: 'A web thing command was executed',
-          type: 'string',
-        },
-      },
-      {
-        name: 'training',
-        metadata: {
-          description: 'Wakeword training started',
-          type: 'string',
-        },
-      },
-    ],
+    // events: [
+    //   {
+    //     name: 'wakeword',
+    //     metadata: {
+    //       description: 'A wakeword was deteced',
+    //       type: 'string',
+    //     },
+    //   },
+    //   {
+    //     name: 'speechinput',
+    //     metadata: {
+    //       description: 'A voice command was detected',
+    //       type: 'string',
+    //     },
+    //   },
+    //   {
+    //     name: 'command',
+    //     metadata: {
+    //       description: 'A web thing command was executed',
+    //       type: 'string',
+    //     },
+    //   },
+    //   {
+    //     name: 'training',
+    //     metadata: {
+    //       description: 'Wakeword training started',
+    //       type: 'string',
+    //     },
+    //   },
+    // ],
   });
   adapter.handleDeviceAdded(device);
-}
-
-function checkInstallation() {
-  const snips_installation = spawn(
-    'bash',
-    ['install_deps.sh', 'install'],
-    {cwd: path.join(__dirname, 'deps')}
-  );
-  snips_installation.stdout.on('data', (data) => {
-    console.log(`DATA snips_installation: ${data.toString()}`);
-  });
-  snips_installation.stderr.on('data', (data) => {
-    console.log(`Error executing install_script.sh ${data}`);
-  });
 }
 
 module.exports = loadVoiceAdapter;
